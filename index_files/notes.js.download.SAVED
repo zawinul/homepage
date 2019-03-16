@@ -1,0 +1,87 @@
+(function() {
+	var editor, note, target;
+
+	function init() {
+		$('#editor1').hide();
+		$.get('../getandset/get.php?name=hp-notes.html').then(function(x) {
+			console.log(typeof(x));
+			console.log(x);
+
+			$(x).appendTo('body');
+			$( ".notes .note" ).draggable({
+				stop: _update
+			}).resizable({
+				resize: _update
+			});
+			$('.notes').on('dblclick', '.title, .body', function() {
+				target = $(this);
+				initEditor();
+				editor.setData(target.html());
+			})
+			.dblclick(function(){
+				// note = $(this), col=11,cl=note.attr('class').split(' ');
+				// for(var i=0; i<cl.length; i++) {
+				// 	let x = cl[i];
+				// 	if (x.indexOf('col')==0) {
+				// 		col	= x.substring(3)-0;
+				// 		note.removeClass(x);
+				// 		break;
+				// 	}
+				// }
+				// col = (col+1)%12;
+				// note.addClass('col'+col);
+				// var d = $('<div/>').append($('.body',note).clone());
+			});
+		});
+	}
+	function outerHtml(x) {
+		var d = $('<div/>').append(x.clone());
+		var h = d.html();
+		d.remove();
+		return h;
+	}
+
+	function initEditor() {
+		if (editor)
+			return;
+		$('#editor1').show();
+		editor = CKEDITOR.replace('editor1' ,{
+			startupFocus : true,
+			enterMode: CKEDITOR.ENTER_BR,
+			shiftEnterMode: CKEDITOR.ENTER_BR
+		});
+		editor.on( 'change', function( evt ) {
+			var data = evt.editor.getData();
+			console.log(data);
+			target.html(data);
+		});
+
+		editor.on('blur', function(evt){
+			var data = evt.editor.getData();
+			console.log('blur');
+			target.html(data);
+			editor.destroy();
+			$('#editor1').hide();
+			editor = null;
+		});
+		editor.on('focus', function(evt){
+			console.log('focus');
+		});
+	}
+
+	function _update(event, ui) {
+		var note = ui.helper.detach();
+		$('.notes').append(note);
+		var d = $('<div/>');
+		d.append($('.notes').clone());
+		$('.ui-resizable-handle', d).remove();
+		$('*', d).removeClass('ui-draggable ui-draggable-handle ui-resizable ui-draggable-dragging ui-resizable-resizing');
+		var h = d.html();
+		//console.log(h);
+		$.post('../getandset/set.php', {name:'hp-notes.html', data:h});
+	}
+
+	$(init);
+
+})();
+
