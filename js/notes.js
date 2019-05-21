@@ -2,14 +2,14 @@ var lastSaved = '';
 var curVersion = 0;
 
 $(window).on('unload', function() {
-	alert("Bye now!");
+	console.log('ON UNLOAD');
+	//saveUi();
 });
   
 (function () {
 	var editing = false;
-	var initializing = true;
 
-	var notes = function(){
+	var notes = function(){ 
 
 		// prende tutte le note e le ripulisce, 
 		// ritorna un $(div) pronto per il save
@@ -29,64 +29,76 @@ $(window).on('unload', function() {
 			$('*', d).removeClass('filtered cat-filtered editing not-editing contenteditableui-draggable ui-draggable ui-draggable-handle ui-resizable ui-draggable-dragging ui-resizable-resizing');
 			return d;
 		}
-	
+
 		// salva su localstorage e su AWS
 		function save() {
-			$('.save-notes').addClass('loading');
-			var d = prepareNotesForSave();
-			var html = d.html();
-	
-			if ($('.note', d).length==0) {
+			if ($('.note').length==0) {
 				console.log('non salvo perchè 0 note');
 				return;
 			}
-	
-			localStorage.setItem('localNotes', html);
+			$('.save-notes').addClass('loading');
+			var s = extract();
+		
+			localStorage.setItem('localNotes', s);
 
-			aws.put('hp-notes', 'paolo-hp-notes.html', html).then(function(){
-				console.log('saved on AWS');
+			aws.put('hp-notes', 'paolo-hp-notes-v2.html', s).then(function(){
 				$('.save-notes').removeClass('loading');
+				alert('saved on AWS');
 			});
 		}
 	
-		// function buildUiFromHtml(x) {
-		// 	x = $(x);
-		// 	if (!x.is('.notes'))
-		// 		x = $('<div/>').addClass('notes').append(x);
-
-		// 	//$('.note',x).addClass('cat-filtered');
-		// 	$('.notes').remove();
-		// 	x.appendTo('body');
-		// 	var n = $('.note', $(x)).length;
-		// 	console.log('restored '+n+' notes');
-		// 	$(".notes .note").initNote();
-		// 	ui.restore();
-		// }
-	
 		function createNewNote() {
+			function newId() {
+				var x = Math.floor(Math.random()*1000000000+1000000000);
+				x = 'n'+x.toString().substring(1);
+				if ($('#'+id).length>0)
+					return newId();
+				return x;
+			}
 			console.log('new note');
-			var n = $('<div/>').addClass('note corsivo').appendTo('.notes');
+			var id = newId();
+			var col = Math.floor(Math.random()*12);
+			var n = $('<div/>').addClass('note').appendTo('.notes');
+			n.attr('id', id);
 			var h = $('<h2 class="title"><div class="text">nuova nota</div></h2>').appendTo(n);
 			var b = $('<div class="body"/>').appendTo(n);
-			n.addClass('col' + Math.floor(Math.random() * 12));
-			n.addClass('rot' + Math.floor(Math.random() * 13));
+			n.addClass('col' + col);
 			n.width(200).height(150);
 			n.css({ top: Math.random() * 30, right: $('.notes').width()*.5-100 });
+
+			var descr =  {
+				"id": id,
+				"x": Math.floor(Math.random()*500+10),
+				"y": Math.floor(Math.random()*100+10),
+				"width": 200,
+				"height": 150,
+				"position": "0",
+				"category": "",
+				"title": "nuova nota",
+				"color": col
+			};
+			showcase.notes[id] = descr;
+			n.css({
+				left: descr.x,
+				top: descr.y,
+				width: descr.width,
+				height: descr.height
+			});
+
 			n.initNote();
+			invalidateShowcase();
 		}
 	
 		return {
-			prepareNotesForSave: prepareNotesForSave,
 			save: save,
-			//buildUiFromHtml:buildUiFromHtml,
 			createNewNote:createNewNote
 		};
 	}();
 
 	var storage = function(){
 		function getVersions(forceReload) {
-			if (!getVersions.promise) {
-				getVersions.promise = aws.listVersions('hp-notes', 'paolo-hp-notes.html').then(function(data){
+			if (!getVersions.promise || forceReload) {
+				getVersions.promise = aws.listVersions('hp-notes', 'paolo-hp-notes-v2.html').then(function(data){
 					versions = data.Versions;
 					console.log({VERSIONI:data});
 					console.log('SONO PRESENTI '+versions.length+' VERSIONI');
@@ -98,9 +110,12 @@ $(window).on('unload', function() {
 	
 		function getVersion(ver) {
 			console.log('get version '+ver);
-			return getVersions().then(function(versions){
-				return aws.get('hp-notes', 'paolo-hp-notes.html', versions[ver].VersionId);
-			})
+			if (!ver)
+				return aws.get('hp-notes', 'paolo-hp-notes-v2.html');
+			else
+				return getVersions().then(function(versions){
+					return aws.get('hp-notes', 'paolo-hp-notes-v2.html', versions[ver].VersionId);
+				});
 		}
 	
 		function setVersion(ver) {
@@ -131,69 +146,47 @@ $(window).on('unload', function() {
 		}
 	}();
 
-	var postit = function(){
-		function init(){
-			jQuery.fn.extend({
-				initNote: initNote,
-				putOnTop: putOnTop
-			});
-		}
-
-		function initNote() {
-			$(this).each(initSingleNote);
-		}
-
+	function extendJQuery(){
 		function initSingleNote(index, el) {
 			var note = $(el);
+			var id = note.attr('id');
+			var descr = showcase.notes[id];
 			function addMenu() {
 				function elimina() {
 					setTimeout(function () {
 						note.animate({ width: 0, height: 0, opacity: 0 }, 500, function () {
 							note.remove();
+							delete showcase.notes[id];
+							invalidateShowcase();
 						});
 					}, 500);
 				}
 	
 				function edit() {
-					editor.editNote(note);
-				}
-			
-				function corsivo() { 
-					note.toggleClass('corsivo'); 
+					editor.editNote(id);
 				}
 	
 				function changeColor() {
-					var col = 11, cl = note.attr('class').split(' ');
-					for (var i = 0; i < cl.length; i++) {
-						let x = cl[i];
-						if (x.indexOf('col') == 0) {
-							col = x.substring(3) - 0;
-							note.removeClass(x);
-							break;
-						}
-					}
-					col = (col + 1) % 12;
-					console.log('new color: ' + col);
-					note.addClass('col' + col);
+					note.removeClass('col'+descr.color);
+					descr.color = (descr.color+1)%12;
+					note.addClass('col'+descr.color);
+					invalidateShowcase();
 				}
 			
-				var id = "n" + Math.floor(Math.random() * 1000000000);
 				var container = $('.title', note);
 
 				var checkbox = $('<div/>').addClass('checkbox').prependTo(container);
 				checkbox.click(function(){
-					noteCategory.toggleNote(note);
+					noteCategory.toggleNote(id);
 					noteCategory.updateNotes();
 				});
 
-				note.removeAttr('id').attr('id', id);
 				$('.button', container).remove();
 				var b = $('<div class="button menu"><img src="img/menu.png"/></div>').appendTo(container);
 				// $( ".button", div).disableSelection();
 				items = {
 					edit: { name: 'Edit', callback: edit},
 					changeColor: { name: 'Cambia colore', callback: changeColor},
-					corsivo: { name: 'Corsivo', callback:  corsivo},
 					elimina: { name: 'Elimina', callback:  elimina}
 				};
 				$.contextMenu({
@@ -206,37 +199,36 @@ $(window).on('unload', function() {
 			}
 		
 			addMenu();
-			noteCategory.addLabel(note);
+			noteCategory.addLabel(id);
 			note.draggable({
-				start: function () { note.putOnTop(); },
+				start: function () { 
+					note.putOnTop(); 
+				},
+				stop: function(event, ui) { 
+					descr.x = ui.position.left; 
+					descr.y = ui.position.top; 
+					console.log('x:' +descr.x+' , y:'+descr.y);
+					invalidateShowcase();
+				},
 				handle: $(".title", note)
 			});
 			note.resizable({
 				stop: function () {
 					$('.body', note).css({ height: note.height() - 38 });
+					descr.width = note.width();
+					descr.height = note.height();
+					invalidateShowcase();
 				},
 				start: function () { note.putOnTop();  }
 	
 			});
-	
 	
 			note.click(function () { 
 				note.putOnTop(); 
 			});
 			note.dblclick(function () {
 				note.putOnTop();
-				if (note.is('.zoomed')) {
-					note.removeClass('zoomed');
-					note.addClass('minimized');
-				} 
-				else if (note.is('.minimized')) {
-					note.removeClass('minimized');
-					note.removeClass('zoomed');
-				}
-				else {
-					note.removeClass('minimized');
-					note.addClass('zoomed');
-				}
+				note.toggleClass('zoomed');
 			});
 			$('.title', note).click(function () {
 				if (editing) 
@@ -248,54 +240,40 @@ $(window).on('unload', function() {
 			});
 		}
 
-		function putOnTop() {
-			$(this).each(putOnTopSingleNote);
-		}
-	
 		function putOnTopSingleNote(index, el) {
-			var note = $(el)
-			$('.note').each(function (i, el) {
-				$(el).attr('data-position', i);
-			});
-	
-			var isTop = note.attr('data-position') == $('.note').length - 1;
-			console.log('putOnTop istop=' + isTop + ' n=' + $('.note').length + ' top=' + $('.on-top').length + ' pos=' + note.attr('data-position'));
-			if (!isTop) {
-				$('.note').removeClass('on-top');
-				note.addClass('on-top');
-				$('.notes').append(note.detach());
-				$('.note').each(function (i, el) {
-					$(el).attr('data-position', i);
-				});
+			var note = $(el);
+			console.log('putOnTop '+$('.title .text', note).text());
+			var id = note.attr('id');
+			showcase.notes[id].position=999999;
+			
+			var notes = [];
+			for(var k in showcase.notes)
+				notes.push(showcase.notes[k]);
+			
+			notes.sort((a,b)=>a.position-b.position);
+			for(var i=0; i<notes.length; i++) {
+				var descr = notes[i];
+				var n = $('#'+descr.id);
+				descr.position = i+1;
+				n.css({ zIndex: i+1 }).removeClass('on-top');
 			}
-		}
-	
-		return {
-			init:init
-		}
-	}();
-
-	var ui = function() {
-		var status = {
-			filter: null,
-			categories: {},
-			positions: []
-		};
-
-		function init() {
-			setFont();
-			addTopPanel();
-			restore();
+			note.addClass('on-top');
+			invalidateShowcase();
 		}
 
-		function setFont() {
-			// var noteFont = "Sedgwick Ave";
-			//var noteFont = "Architects Daughter";
-			var noteFont = "Indie Flower";
+		jQuery.fn.extend({
+			initNote: function() {
+				$(this).each(initSingleNote);
+			},
+			putOnTop: function(){
+				$(this).each(putOnTopSingleNote);
+			}
+		});
+	};
 
-			// var href="https://fonts.googleapis.com/css?family="+encodeURI(noteFont);
-			var href = "img/font.css";
-			$('<link/>').attr({ href: href, rel: 'stylesheet' }).appendTo('head');
+	function uiInit() {
+
+		function loadCkEditor() {
 			setTimeout(function loadCKEditor() {
 				return $.ajax({
 					dataType: "script",
@@ -305,116 +283,66 @@ $(window).on('unload', function() {
 			}, 2000);
 		}
 
-		function addTopPanel() {
-			function filterChanged() {
-				var pattern = $('.filter').val().toUpperCase().trim();
-				var filterOn = !!pattern;
-				$('.filter,.magnifier').toggleClass('filter-on', filterOn);
+		loadCkEditor();
 
-				if (!filterOn) {
-					$('.note').removeClass('filter-excluded filter-selected');
-					return; 
-				}
+		function filterChanged() {
+			var pattern = $('.filter').val().toUpperCase().trim();
+			showcase.filter = pattern; 
+			var filterOn = !!pattern;
+			$('.filter,.magnifier').toggleClass('filter-on', filterOn);
 
-				function filtered(note) {
-					if (!filterOn)
-						return true;
-					if ($('.title .text', this).text().toUpperCase().indexOf(pattern) >= 0)
-						return true;
-					if ($('.body', this).text().toUpperCase().indexOf(pattern) >= 0)
-						return true;
-					return false;
-				}
-				
-
-				var fset = $('.note').filter(filtered);
-				console.log("TOT:"+$('.note').length+" fset:"+fset.length);
-				fset.addClass('filter-selected').removeClass('filter-excluded');
-				$('.note').not(fset).addClass('filter-excluded').removeClass('filter-selected');
-				console.log('filter: [' + pattern + '] #' + fset.length);
-				save();
+			if (!filterOn) {
+				$('.note').removeClass('filter-excluded filter-selected');
+				return; 
 			}
-		
-			$('body .note-panel').remove();
-			var p = $('<div/>').addClass('note-panel').appendTo('body');
-			var inp = $('<input/>').addClass('filter').appendTo(p);
-			inp.on('keypress keyup blur focus change', filterChanged);
-			$('<img/>').addClass('magnifier').attr('src', 'img/magnifier.png').appendTo(p);
-	
-			var s = $('<div/>').addClass('save-notes').appendTo(p);
-			$('<img/>').attr('src', 'img/save.png').appendTo(s);
-			$('<img/>').attr('src', 'img/spin-1s-16px.gif').addClass('loader').appendTo(s);
-			s.click(notes.save);
-	
-			var b = $('<div/>').addClass('new-note').appendTo(p);
-			$('<img/>').attr('src', 'img/new-note.png').appendTo(b);
-			b.click(notes.createNewNote);
-	
-			var l = $('<div/>').addClass('linear').appendTo(p);
-			$('<img/>').attr('src', 'img/list.png').appendTo(l);
-			l.click(function(){ $('body').addClass('linear'); });
-	
-			var o = $('<div/>').addClass('overlapping').appendTo(p);
-			$('<img/>').attr('src', 'img/overlap.png').appendTo(o);
-			o.click(function(){ $('body').removeClass('linear'); });
-	
-		}
-	
-		function save() {
-			if (!save.delayed)
-				save.delayed = _.debounce(f, 10000);
-			return save.delayed();
 
-			function f() {
-				if (initializing)
-					return;
-				console.log('save UI');
-				status.filter = $('.filter').val();
-				status.categories = noteCategory.getStatus(true);
-				localStorage.setItem('uiStatus', JSON.stringify(status, null,2));
+			function filtered(note) {
+				if (!filterOn)
+					return true;
+				if ($('.title .text', this).text().toUpperCase().indexOf(pattern) >= 0)
+					return true;
+				if ($('.body', this).text().toUpperCase().indexOf(pattern) >= 0)
+					return true;
+				return false;
 			}
+			
+
+			var fset = $('.note').filter(filtered);
+			console.log("TOT:"+$('.note').length+" fset:"+fset.length);
+			fset.addClass('filter-selected').removeClass('filter-excluded');
+			$('.note').not(fset).addClass('filter-excluded').removeClass('filter-selected');
+			console.log('filter: [' + pattern + '] #' + fset.length);
+			save();
 		}
+	
+		$('body .note-panel').remove();
+		var p = $('<div/>').addClass('note-panel').appendTo('body');
+		var inp = $('<input/>').addClass('filter').appendTo(p);
+		inp.on('keypress keyup blur focus change', filterChanged);
+		$('<img/>').addClass('magnifier').attr('src', 'img/magnifier.png').appendTo(p);
 
-		function restore() {
-			var x = localStorage.getItem('uiStatus');
-			if (x)
-				status = JSON.parse(x);
-			$('.filter').val(status.filter || '');
-			noteCategory.init(status.categories);
-		}
+		var s = $('<div/>').addClass('save-notes').appendTo(p);
+		$('<img/>').attr('src', 'img/save.png').appendTo(s);
+		$('<img/>').attr('src', 'img/spin-1s-16px.gif').addClass('loader').appendTo(s);
+		s.click(notes.save);
 
-		function getStatus() {
-			return status;
-		}
+		var b = $('<div/>').addClass('new-note').appendTo(p);
+		$('<img/>').attr('src', 'img/new-note.png').appendTo(b);
+		b.click(notes.createNewNote);
 
-		function buildFromHtml(x) {
-			x = $(x);
-			if (!x.is('.notes'))
-				x = $('<div/>').addClass('notes').append(x);
+		var l = $('<div/>').addClass('linear').appendTo(p);
+		$('<img/>').attr('src', 'img/list.png').appendTo(l);
+		l.click(function(){ $('body').addClass('linear'); });
 
-			//$('.note',x).addClass('cat-filtered');
-			$('.notes').remove();
-			x.appendTo('body');
-			var n = $('.note', $(x)).length;
-			console.log('restored '+n+' notes');
-			$(".notes .note").initNote();
-			restore();
-		}
-
-
-		return {
-			init: init,
-			save: save,
-			restore:restore,
-			getStatus:getStatus,
-			buildFromHtml: buildFromHtml
-		}
-	}();
+		var o = $('<div/>').addClass('overlapping').appendTo(p);
+		$('<img/>').attr('src', 'img/overlap.png').appendTo(o);
+		o.click(function(){ $('body').removeClass('linear'); });
+	}
 
 
 	var editor = function() {
 		var instance = null;
-		var savedTitle, savedBody, target, currNote;
+		var savedTitle, savedBody, target, currNote, currNoteId;
 		function init() {
 			if (instance)
 				return;
@@ -435,6 +363,9 @@ $(window).on('unload', function() {
 					$('body').removeClass('editor-opened');
 					instance = null;
 					editing = false;
+					var title = $('.title .text', currNote).text().trim();
+					showcase.notes[currNoteId].title = title;
+					invalidateShowcase();
 				}
 			});
 	
@@ -476,13 +407,14 @@ $(window).on('unload', function() {
 			});
 		}
 	
-		function editNote(note) {
-			currNote = note;
-			savedTitle = $('.title .text', note).html();
-			savedBody = $('.body', note).html();
-			target = $('.body', note);
-			$('.note').not(note).addClass('not-editing');
-			note.addClass('editing');
+		function editNote(id) {
+			currNoteId = id;
+			currNote = $('#'+id);
+			savedTitle = $('.title .text', currNote).html();
+			savedBody = $('.body', currNote).html();
+			target = $('.body', currNote);
+			$('.note').not(currNote).addClass('not-editing');
+			currNote.addClass('editing');
 			init();
 			instance.setData(savedBody);
 			editing = true;
@@ -504,30 +436,22 @@ $(window).on('unload', function() {
 
 	function init() {
 		$('#editor1').hide();
-		$('.tree-panel').hide();
-		postit.init();
-		ui.init();
-
-		noteCategory.onChange.progress(ui.save);
-
-		var localNotes = localStorage.getItem('localNotes');
-		if (localNotes) {
-			ui.buildFromHtml(localNotes);
-		}
-		
-		storage.setVersion(0).then(function(){
-			ui.restore();
-			$('.tree-panel').show();
-			initializing = false;
-		}); // 0 = most recent
+		extendJQuery();
+		uiInit();
 	}
-
-
-	window.setVersion = storage.setVersion;
-	window.save = notes.save;
-	window.regredisci = storage.regredisci;
 
 	$(init);
 
 })();
 
+function provaBackground() {
+	var url = prompt('background url');
+	if (!url)
+		return;
+	$('body').css({
+		backgroundImage: 'url("'+url+'")',
+		backgroundSize: 'cover'
+	});
+}
+
+Mousetrap.bind('ctrl+b', provaBackground);

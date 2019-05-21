@@ -4,8 +4,7 @@ function initPWA() {
 	console.log('start app.js');
 
 	if (!('serviceWorker' in navigator)) {
-		console.log("serviceWorker non supportato");
-		return;
+		return Promise.reject("serviceWorker non supportato");
 	}
 
 	navigator.serviceWorker.addEventListener('message', function(event){
@@ -44,6 +43,8 @@ function sendPwaMessage(msg){
 	}
 	return false;
 }
+
+
 
 initPWA().then(function(){
 	console.log("PARTITI!");

@@ -1,5 +1,7 @@
 body {
-  background: url("img/bg4b.jpg");
+  background-image: url("https://previews.123rf.com/images/pongmoji/pongmoji1503/pongmoji150300029/37230338-wood-texture-background-soft-tone-white-color.jpg");
+  background-size: cover;
+  background-repeat: no-repeat;
   font-family: calibri;
   font-size: 16px;
   color: black;

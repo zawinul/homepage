@@ -1,57 +1,31 @@
 var noteCategory = (function () {
 	var initialized = false;
 	var container;
-	var onChange = $.Deferred();
-	var status;
+	var tree;
 
-	function addLabel(note) {
+	function addLabel(id) {
+		var descr = showcase.notes[id];
+		var note = $('#'+id);
 		$('.category-label', note).remove();
-		var cat = note.attr('data-category');
-		if (!cat)
-			note.attr('data-category', cat='');
+		var cat = descr.category || '';
 	
 		var c = $('<div/>').addClass('category-label').text(cat).appendTo($('.title', note));
 		c.click(function() {
 			var x = prompt('categoria', cat);
 			if (x!=null) {
-				note.attr('data-category', x.trim());
-				c.text(x||' ');
+				descr.category = x.trim();
+				c.text(descr.category);
 			}
 		});
 	}
 
-	function init(_status) {
-		if (_status)
-			status = _status;
+	function init() {
 		buildUiTree();
 		updateNotes();
 	}
 
-	function getStatus(refresh) {
-		if (!refresh && status)
-			return status;
-		try {
-			console.log('get status refresh');
-			var s = {
-				selected: [],
-				opened: []
-			};
-	
-			var x = $(".internal").jstree(true).get_json('#', {'flat': true});
-			for(var i=0; i<x.length; i++) {
-				let n = x[i];
-				if(n.state.opened)
-					s.opened.push(n.id);
-				if(n.state.selected)
-					s.selected.push(n.id);
-			}
-			status = s;
-		}catch(e) {}
-		return status;
-	}
 
 	function getDataFromNotes() {
-		status = status || getStatus();
 		var leafMap = {};
 
 		function insert(name, tree, position) {
@@ -66,30 +40,24 @@ var noteCategory = (function () {
 				return;
 			var node = _.find(tree, function(x) { return x.id==nodename;});
 			if (!node) {
-				opened = (status&&status.opened) ? status.opened.indexOf(nodename)>=0 : true;
-				selected = (status&&status.selected) ? status.selected.indexOf(nodename)>=0 : false;
+				closed = showcase.categories.closed.indexOf(nodename)>=0;
+				selected = showcase.categories.selected.indexOf(nodename)>=0;
 				node = { 
 					id: nodename,
 					text:arr[position], 
 					state:{ 
-						opened: opened,
+						opened: !closed,
 						selected: selected
 					},
 					children:[]
 				};
 				leafMap[nodename] = node.children;
-				//console.log('insert leaf ['+nodename+']');
-				//console.log('push nodename='+nodename+' text='+arr[position]+' p='+position);
 				tree.push(node);
 			}
 			if (arr.length==1)
 				return;
 			//node.children = node.children || [];
 			insert(name, node.children, position+1);
-		}
-
-		if (initialized) {
-			selected = container.jstree('get_selected');
 		}
 
 		var data = [{
@@ -99,58 +67,68 @@ var noteCategory = (function () {
 			children:[]
 		}];
 
+		leafMap[''] = data[0].children;
+
 		// costruisci struttura
-		$('.note').each(function () { 
-			var note = $(this);
-			var cat = note.attr('data-category');
+		for(var id in showcase.notes) {
+			var descr = showcase.notes[id];
+			var cat = descr.category;
 			if (cat.indexOf('/')==0) {
 				cat = cat.substring(1);
-				note.attr('data-category', cat);
+				descr.category = cat;
 			}
-			// insert(cat.split('/'), data, cat);
 			insert(cat, data[0].children, 0);
-		});
+		};
 
 		// appendi le foglie
-		$('.note').each(function () { 
-			var note = $(this);
-			var cat = note.attr('data-category');
-			var txt = $('.title .text', note).text().trim();
+		for(var id in showcase.notes) {
+			var descr = showcase.notes[id];
+			var cat = descr.category;
+			var txt = descr.title;
 			//console.log('append cat=['+cat+'] '+txt);
 			var container = leafMap[cat];
 			if (!container) {
 				console.log('### manca il container per ['+cat+']');
-				return;
+				return data;
 			}
 			var name = cat+":"+txt; 
-			var selected = (status&&status.selected) ? status.selected.indexOf(name)>=0 : true;
 			//console.log("SEARCH "+selected+" "+name);
+			selected = showcase.categories.selected.indexOf(name)>=0;
+
 			container.push({
 				id: name,
 				text:txt, 
-				selected: true
+				state: {
+					selected: selected
+				}
 			});
-		});
+		};
 
-		console.log({getData:data});
+		//console.log({getData:data});
 		return data;
 	}
 
 	function buildUiTree() {
-		status = status || getStatus();
 		var	data = getDataFromNotes();
 		$('body .tree-panel').remove();
 		var tp = $('<div class="tree-panel"/>').appendTo('body');
 		container = $('<div class="internal"/>').appendTo(tp);
-		container.jstree({
+		tree = container.jstree({
 			"plugins": [ "checkbox"],
 			'core': { 'data': data }
 		});
 		container.on("changed.jstree", function (e, data) {
 			setTimeout(updateNotes,1);
 		});
+		container.on("open_node.jstree close_node.jstree", function(evt, node){
+			showcase.categories.closed.length = 0;
+			$('li[role="treeitem"].jstree-closed').each(function(i,node) { 
+				showcase.categories.closed.push(node.id); 
+			});
+			invalidateShowcase();
+		});
 
-		var x = (status && status.selected)?status.selected.slice(0):[];
+		var x = showcase.categories.selected.slice(0);
 		setTimeout(function(){
 			for(var i=0; i<x.length; i++) 
 				container.jstree(true).select_node(x[i]);
@@ -161,46 +139,41 @@ var noteCategory = (function () {
 
 	function updateNotes() {
 		console.log('cat updateNotes');
-		var st = getStatus(true);
+		var newSelected = tree.jstree('get_selected');
+		for(var id in showcase.notes) {
+			var descr = showcase.notes[id];
+			var note = $('#'+id);
+			var all = newSelected.length==0;
+			var fullPath = descr.category+":"+descr.title;
+			var top = descr.category=='';
+			var wasOk = note.is('.cat-ok');
+			var ok = top || all || newSelected.indexOf(descr.category)>=0 
+				|| newSelected.indexOf(fullPath)>=0;
 
-		$('.note').each(function() {
-			var note = $(this);
-			var cat = note.attr('data-category');
-			var fullPath = cat+":"+$('.title .text', note).text().trim();
-			var ok = cat.trim()=='' || st.selected.length==0 || st.selected.indexOf(cat)>=0 || st.selected.indexOf(fullPath)>=0;
 			note.toggleClass('cat-filtered', !ok);
 			note.toggleClass('cat-ok', ok);
-		});
-		onChange.notify();
+			if (ok && !wasOk)
+				note.putOnTop();
+			//console.log('ok='+ok+' top='+top+' all='+all+' nlen='+$('#'+id).length+' ['+id+'] '+fullPath);
+		}
+		showcase.categories.selected = newSelected;
+		invalidateShowcase();
 	}
 
-	function toggleNote(note) {
-		var cat = note.attr('data-category');
-		var txt = $('.title .text', note).text().trim();
-		var id = cat+":"+txt;
-		var sel = '[id="'+id+'"] .jstree-checkbox';
-		var x = $(sel);
-		console.log("sel="+sel+" n="+x.length);
-		$(sel).trigger('click');
-		//updateNotes();
+	function toggleNote(id) {
+		var descr = showcase.notes[id];
+		var name = descr.category+":"+descr.title;
+		$('#'+id).putOnTop();
+		var treeNode = $('[id="'+name+'"] .jstree-checkbox');
+		treeNode.trigger('click');
 	}
-
-
-	function setStatus(_status) {
-		status = _status;
-		buildUiTree();
-	}
-
 
 	return {
 		init: init,
 		addLabel: addLabel,
 		buildUiTree: buildUiTree,
 		updateNotes: updateNotes,
-		toggleNote: toggleNote,
-		getStatus: getStatus,
-		setStatus: setStatus,
-		onChange: onChange
+		toggleNote: toggleNote
 	}
 })();
 

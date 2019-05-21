@@ -62,7 +62,7 @@ div.notes {
 div.notes .note {
   overflow: hidden;
   position: absolute;
-  float: right;
+  float: none;
   pointer-events: visible;
   color: #000;
   background: #efc;
@@ -72,8 +72,8 @@ div.notes .note {
   z-index: 10;
   font-size: 12px;
 }
-div.notes .note.note.corsivo {
-  font-family: Indie Flower, cursive;
+div.notes .note.on-top {
+  border-width: 3px;
 }
 div.notes .note.ui-draggable-dragging {
   z-index: 200;
@@ -354,9 +354,9 @@ div.notes .button:hover {
   background-color: white;
 }
 .tree-panel {
-  font-family: cursive;
-  font-size: 14px;
-  color: #606040;
+  font-family: Lucida Sans Unicode;
+  font-size: 12px;
+  color: #404038;
   padding: 6px;
   position: absolute;
   top: 0px;
@@ -368,7 +368,7 @@ div.notes .button:hover {
 }
 .tree-panel:hover {
   z-index: 20;
-  background-color: rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.5);
 }
 .tree-panel .jstree-default .jstree-clicked {
   background: none;
